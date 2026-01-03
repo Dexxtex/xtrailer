@@ -36,7 +36,7 @@ const manifest = {
     background: 'https://i.imgur.com/rEN6X72.jpeg',
     resources: ['stream'],
     types: ['movie', 'series'],
-    idPrefixes: ['tt', 'tmdb:', 'kitsu:'],  // Supports IMDb (tt...), TMDB (tmdb:), and Kitsu (kitsu:)
+    idPrefixes: ['tt', 'tmdb:', 'kitsu:'],
     catalogs: [],
     behaviorHints: {
         configurable: true
@@ -177,7 +177,7 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
                 const converted = await imdbToTmdbWithLanguage(imdbId, 'series', language);
                 if (converted) {
                     recapTmdbId = recapTmdbId || converted.id;
-                    seriesName = converted.title; // Use TMDB title (clean, localized)
+                    seriesName = converted.title;
                     console.log(`[Streailer] TMDB info: ID=${recapTmdbId}, Title="${seriesName}"`);
                 }
             }
@@ -196,14 +196,27 @@ builder.defineStreamHandler(async ({ type, id, config }) => {
         // Combine streams based on config
         let streams;
         if (onlyRecaps && recapStreams.length > 0) {
-            // Only recaps mode: no trailers
             streams = recapStreams;
             console.log(`[Streailer] Returning ${streams.length} stream(s) (recaps only)`);
         } else {
-            // Normal mode: trailer first, then recaps
             streams = [...trailerStreams, ...recapStreams];
             console.log(`[Streailer] Returning ${streams.length} stream(s) (${trailerStreams.length} trailer + ${recapStreams.length} recaps)`);
         }
+
+        // Aggiungi supporto SmartTube per Android TV
+        streams = streams.map(stream => {
+            if (stream.externalUrl) {
+                const videoId = stream.externalUrl.match(/(?:youtu\.be\/|youtube\.com\/watch\?v=)([^&?]+)/)?.[1];
+                if (videoId) {
+                    return {
+                        ...stream,
+                        externalUrl: `https://www.youtube.com/watch?v=${videoId}`,
+                        androidTvUrl: `intent://www.youtube.com/watch?v=${videoId}#Intent;package=org.smarttube.stable;scheme=https;end`
+                    };
+                }
+            }
+            return stream;
+        });
 
         return { streams };
     } catch (error) {
@@ -238,7 +251,6 @@ const addonInterface = builder.getInterface();
 const addonRouter = getRouter(addonInterface);
 
 // IMPORTANT: Middleware to intercept ALL manifest.json requests BEFORE SDK router
-// This ensures we always return OUR manifest, not the SDK's cached copy
 app.use((req, res, next) => {
     if (req.path.endsWith('/manifest.json')) {
         res.setHeader('Content-Type', 'application/json');
